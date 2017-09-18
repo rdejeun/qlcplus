@@ -1,0 +1,103 @@
+
+                            freeDMX AP PROTOCOL
+						    ===================
+
+						
+Eurolite® freeDMX AP interface receives the 512-channel values from the client
+software through a Wi-Fi network and transmits them to the DMX line via the DMX
+OUT cable.
+
+The easiest way to control the DMX fixtures is to use the AP mode (Access Point)
+which provides a dedicated WLAN with a DHCP service where the client can connect
+without requiring any existing Wi-Fi network.
+
+The factory default settings for the AP mode are:
+ - WiFi standard      = IEEE 802.11g/b/n
+ - Frequency range    = 2.4 GHz range (ISM), 11 channels
+ - Network SSID       = freeDMX_AP_xxxxxx
+ - IP address         = 192.168.4.1
+ - UDP port           = 10100
+
+Nota: Information provided here has not been given nor validated by Steinigke
+Showtechnic GmbH.
+
+ 
+1) Connection initialisation
+----------------------------
+
+To start the connection with the freeDMX interface, the client sends the
+following 4-byte UDP message:
+
+  Client >> [UDP] E5 39 60 00 (4 bytes) >> freeDMX
+
+The freeDMX interface sends back a reply:
+  
+  freeDMX >> [UDP] A7 (1 byte) >> Client
+  freeDMX >> [UDP] AA (1 byte) >> Client
+
+  
+From this moment and for all the time the connection is established, the
+freeDMX interface sends an acknowledge word to the client every second:
+
+  freeDMX >> [UDP] F0 64 (2 bytes) >> Client
+
+If the acknowledgement is not received on time, the client should consider
+the connection has been broken.
+
+
+2) Connection established
+-------------------------
+
+Every 40 ms, the client has to send a block of 7 UDP frames of 250 bytes with
+the values (xx) for each of the 512 DMX channels:
+
+  1: [UDP] C0 00 xx  C0 01 xx  C0 02 xx ... 51 xx  C0 52 xx  C0 (250 bytes)
+  2: [UDP] 53 xx  C0 54 xx  ...  C0 7F xx  C2 00 xx  ...  C2 26 (250 bytes)
+  3: [UDP] xx   C2 27 xx   C2 28 xx   C2 29 xx  ...    C2 79 xx (250 bytes)
+  4: [UDP] C2 7A xx  ...  C2 7F xx  C4 00 xx  ...  C4 4C xx  C4 (250 bytes)
+  5: [UDP] 4D xx  C4 4E xx  ...   C4 7F xx  C6 00 xx ...  C6 20 (250 bytes)
+  6: [UDP] xx  C6 21 xx  C6 22 xx  C6 23 xx ... 72 xx  C6 73 xx (250 bytes)
+  7: [UDP] 74 xx  ... C6 7E xx 86 7F xx (36 bytes)
+
+DMX channels from 001 to 128 are coded by words from C0 00 to C0 7F.
+DMX channels from 129 to 256 are coded by words from C2 00 to C2 7F.
+DMX channels from 257 to 384 are coded by words from C4 00 to C4 7F.
+DMX channels from 384 to 511 are coded by words from C6 00 to C6 7E.
+Last DMX channel (512) is coded by word 86 7F instead of C6 7F.
+
+The freeDMX interface sometimes sends a reply [frequency not understood yet]:
+  
+  freeDMX >> [UDP] AA (1 byte) >> Client
+  
+  
+3) Connection termination
+-------------------------
+
+When the client has to terminate the connection, it sends a 2-byte frame to
+the interface:
+
+  Client >> [UDP] AC 00 (2 bytes) >> freeDMX
+  
+This termination word can be sent even if the bunch of 7 frames is not
+completely transmitted.
+
+
+4) Plugin configuration
+-----------------------
+
+The configuration of the plugin should allow to configure one or more freeDMX
+interfaces (lines in a table).
+
+For each freeDMX interface, the following information should be specified:
+  - universe number,
+  - host network adapter (defined by its IP address, default=192.168.4.100),
+  - freeDMX IP address (default=192.168.4.1),
+  - UPD port (default=10100).
+
+-------------------------------------------------------------------------------
+
+This document is copyright © 2017 Rodolphe Dejeunes and contributors.
+Licensed under the Creative Commons Attribution-Share Alike 4.0 license
+http://creativecommons.org/licenses/by-sa/4.0 
+
+EUROLITE® is a brand of Steinigke Showtechnic GmbH.
