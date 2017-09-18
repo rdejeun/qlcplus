@@ -1,8 +1,8 @@
 
                             freeDMX AP PROTOCOL
-						    ===================
+                            ===================
 
-						
+                        
 Eurolite® freeDMX AP interface receives the 512-channel values from the client
 software through a Wi-Fi network and transmits them to the DMX line via the DMX
 OUT cable.
