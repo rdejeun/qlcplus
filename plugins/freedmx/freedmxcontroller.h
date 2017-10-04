@@ -116,9 +116,6 @@ private:
     QTimer* m_ackTimer;
 
 public:
-    // Handle a packet received to the FreeDmx port.
-    // Returns true if the packet has been handled,
-    // or if the packet should not be handled by another controller.
     bool handlePacket(QByteArray const& datagram, QHostAddress const& senderAddress);
 
 protected slots:
