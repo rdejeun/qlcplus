@@ -24,7 +24,7 @@
 #include <QDebug>
 
 /* Number of DMX updates per second (default=25) */
-#define REFRESH_RATE 25
+#define REFRESH_RATE 2
 
 /**
  *  FreeDmxController (constructor)
@@ -190,7 +190,8 @@ void FreeDmxController::updateDmx(const QByteArray &data)
 
 
 void FreeDmxController::sayHello() {
-    qDebug() << "[freeDmxController] Send E5 39 60 00 (hello)";
+    qDebug() << "[freeDmxController] Send E5 39 60 00 (hello) to "
+             << m_address.toString() << ":" << m_port;
     QByteArray packet("\xE5\x39\x60\x00", 4);
     if ( m_udpSocket->writeDatagram(packet, m_address, m_port) < 0 ) {
         qWarning() << "[freeDmxController] sayHello() failed";
@@ -232,6 +233,7 @@ quint64 FreeDmxController::getPacketReceivedNumber()
  */
 void FreeDmxController::receiveDatagrams()
 {
+    QHostAddress senderAddress;
     QByteArray datagram;
     qint64 size;
 
@@ -246,11 +248,12 @@ void FreeDmxController::receiveDatagrams()
     while ( m_udpSocket->hasPendingDatagrams() ) {
         size = m_udpSocket->pendingDatagramSize();
         datagram.resize(size);
-        m_udpSocket->readDatagram(datagram.data(),size);
+        m_udpSocket->readDatagram(datagram.data(), size, &senderAddress);
         m_packetReceived++;
     }
 
-    qDebug() << "[freeDmxController] Received" << size << "bytes";
+    qDebug() << "[freeDmxController] Received" << size
+             << "bytes from " << senderAddress.toString();
 
     /** Fires a timeout if nothing has been received for 2 seconds */
     m_ackTimer = new QTimer(this);
@@ -266,25 +269,28 @@ void FreeDmxController::receiveDatagrams()
  */
 void FreeDmxController::sendDatagrams()
 {
-    QMutexLocker locker(&m_dataMutex);
+    //QMutexLocker locker(&m_dataMutex);
 
-    if ( m_udpSocket == NULL ) return;
+    if ( m_udpSocket == NULL ) {
+        qWarning() << "[FreeDmxController] m_udpSocket == NULL";
+        return;
+    }
 
-    for (int n=0; n<=FRAME_MAX_CHANNEL * FRAME_BYTES_PER_CHANNEL / DATAGRAM_MAX_SIZE; n++) {
+    for ( int n = 0;
+          n <= ( FRAME_MAX_CHANNEL * FRAME_BYTES_PER_CHANNEL / DATAGRAM_MAX_SIZE );
+          n++ ) {
         PacketInfo packet = m_dmxPacketInfo[n];
-        // qDebug() << "[FreeDmxController] Send" << packet.size << "bytes";
-        if ( m_udpSocket->writeDatagram(
-            packet.ptr, packet.size, m_address, m_port) < 0 ) {
+        qDebug() << "[FreeDmxController] Send" << packet.size << "bytes";
+        if ( m_udpSocket->writeDatagram(packet.ptr, packet.size, m_address, m_port) < 0 ) {
             qWarning() << "[FreeDmxController::sendDatagrams] writeDatagram failed for packet " << n;
             qWarning() << "[FreeDmxController::sendDatagrams] Errno: " << m_udpSocket->error();
             qWarning() << "[FreeDmxController::sendDatagrams] Errmgs: " << m_udpSocket->errorString();
         } else m_packetSent++;
-        if (packet.end) break;
+        if ( packet.end ) break;
     }
 }
 
 void FreeDmxController::ackTimeout()
 {
     qWarning() << "[freeDmxControlled] Acknowledge timeout!";
-
 }

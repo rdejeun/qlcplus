@@ -115,10 +115,7 @@ private:
     /** Acknowledge datagram timer */
     QTimer* m_ackTimer;
 
-public:
-    bool handlePacket(QByteArray const& datagram, QHostAddress const& senderAddress);
-
-protected slots:
+public slots:
     void sendDatagrams();
     void receiveDatagrams();
     void ackTimeout();

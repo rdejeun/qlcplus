@@ -22,7 +22,8 @@
 /**
  * Default AP configuration
  */
-#define DEFAULT_AP_ADDRESS "192.168.4.1"
+//#define DEFAULT_AP_ADDRESS "192.168.4.1"
+#define DEFAULT_AP_ADDRESS "192.168.0.224"
 #define DEFAULT_AP_PORT 10100
 
 
