@@ -43,9 +43,9 @@
 
 /** Information about each packet (slice) of the DMX frame */
 typedef struct {
-    const char *ptr; /* Pointer to the begining of the packet */
-    int size;   /* Size in bytes of the packet */
-    bool end;   /* True for the final packet of the frame */
+    const char* ptr;  /* Pointer to the begining of the packet   */
+    qint64 size;      /* Size in bytes of the packet             */
+    bool end;         /* True for the final packet of the frame  */
 } PacketInfo;
 
 
@@ -66,10 +66,8 @@ public:
     /** Update DMX channel values */
     void updateDmx(const QByteArray& data);
 
-    /** Get the number of packets sent by this controller */
+    /** Get the number of packets sent/received by this controller */
     quint64 getPacketSentNumber();
-
-    /** Get the number of packets received by this controller */
     quint64 getPacketReceivedNumber();
 
 
@@ -97,7 +95,12 @@ private:
     /** QLC+ universe transmitted by this controller */
     ushort m_universe;
 
-    /** Keeps the current DMX frame */
+    /** Encoded DMX output frame
+     *
+     *  This buffer is updated periodically on QLC+ MasterTimer clock, by
+     *  calling method updateDmx(), and is used by slot sendDatagrams(),
+     *  triggered by timer m_sendTimer, for transmission to the device.
+     */
     char m_dmxFrame[FRAME_MAX_CHANNEL * FRAME_BYTES_PER_CHANNEL];
 
     /** Slice pointers and size */
@@ -107,21 +110,22 @@ private:
      *  variables that could be used to transmit/receive data */
     QMutex m_dataMutex;
 
-    //QTimer* m_pollTimer;
-
     /** Timer to send channel data every 20ms */
     QTimer* m_sendTimer;
 
     /** Acknowledge datagram timer */
     QTimer* m_ackTimer;
 
-public slots:
+protected slots:
     void sendDatagrams();
     void receiveDatagrams();
     void ackTimeout();
 
+private:
+    void writeDatagram(const char* data, qint64 size);
+
 signals:
-    //void valueChanged(quint32 universe, quint32 input, quint32 channel, uchar value);
+
 };
 
 #endif

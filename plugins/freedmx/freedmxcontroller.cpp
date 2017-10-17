@@ -24,11 +24,10 @@
 #include <QDebug>
 
 /* Number of DMX updates per second (default=25) */
-#define REFRESH_RATE 2
+#define REFRESH_RATE 25
 
 /**
  *  FreeDmxController (constructor)
- *
  */
 FreeDmxController::FreeDmxController(
     QHostAddress address,
@@ -41,6 +40,7 @@ FreeDmxController::FreeDmxController(
     , m_packetReceived(0)
     , m_udpSocket(NULL)
     , m_sendTimer(NULL)
+    , m_ackTimer(NULL)
 {
     /** Create DMX frame structure */
     initDmxFrame();
@@ -63,14 +63,22 @@ FreeDmxController::~FreeDmxController()
  */
 void FreeDmxController::initSocket()
 {
+/*    QHostAddress bindAddress("192.168.4.255");
+    quint16 bindPort = 12345;*/
+
     m_udpSocket = new QUdpSocket(this);
 
-    if ( m_udpSocket->bind(QHostAddress::LocalHost, 12345) == false ) {
-        qWarning() << "[FreeDmxController::initSocket] Cannot bind "
-                   << m_address.toString() << ":" << m_port;
-        qWarning() << "[FreeDmxController::initSocket] Errno: "
+    /**
+     * For the moment, UDP socket reception is not implemented because
+     * unreliable reception cause a blocking of transmission.
+     */
+     /*
+    if ( m_udpSocket->bind(bindAddress, bindPort) == false ) {
+        qWarning() << "[FreeDmxController] Cannot bind "
+                   << bindAddress.toString() << ":" << bindPort;
+        qWarning() << "[FreeDmxController] Errno: "
                    << m_udpSocket->error();
-        qWarning() << "[FreeDmxController::initSocket] Errmgs: "
+        qWarning() << "[FreeDmxController] Errmgs: "
                    << m_udpSocket->errorString();
     }
 
@@ -79,9 +87,10 @@ void FreeDmxController::initSocket()
 
     connect(m_udpSocket, SIGNAL(readyRead()),
             this, SLOT(receiveDatagrams()));
+    */
 
-    /** Be polite !  Say hello to the freeDmx device */
-    sayHello();
+    /** Be polite! Say hello to the freeDmx device */
+    writeDatagram("\xE5\x39\x60\x00", 4);
 
     /** Setup timer for sending channel data periodically */
     m_sendTimer = new QTimer(this);
@@ -93,6 +102,8 @@ void FreeDmxController::initSocket()
 
 void FreeDmxController::closeSocket()
 {
+    QMutexLocker locker(&m_dataMutex);
+
     if ( m_udpSocket == NULL ) return;
 
     if ( m_sendTimer != NULL ) {
@@ -103,7 +114,8 @@ void FreeDmxController::closeSocket()
         m_sendTimer = NULL;
     }
 
-    sayGoodbye();
+    /** Bye bye */
+    writeDatagram("\xAC\x00", 2);
 
     m_udpSocket->close();
     m_udpSocket = NULL;
@@ -114,9 +126,8 @@ void FreeDmxController::closeSocket()
         m_ackTimer->stop();
         delete m_ackTimer;
         m_ackTimer = NULL;
+        qDebug() << "[freeDmxController] ackTimer stopped";
     }
-
-    qDebug() << "[freeDmxController] ackTimer stopped";
 }
 
 
@@ -127,8 +138,8 @@ void FreeDmxController::initDmxFrame()
 {
     /** Fill the frame with channel default values (0) */
     int pos = 0;
-    char code = 0xC0;
-    for (int channel=0; channel<512; channel++) {
+    quint8 code = 0xC0;
+    for (int channel = 0; channel < FRAME_MAX_CHANNEL; channel++) {
         /* Select the command code for the channel */
         if ( channel == 128 ) code = 0xC2; else
         if ( channel == 256 ) code = 0xC4; else
@@ -136,7 +147,7 @@ void FreeDmxController::initDmxFrame()
         if ( channel == 511 ) code = 0x86;
         /* Add the channel 3-byte word to frame */
         m_dmxFrame[pos++] = code;
-        m_dmxFrame[pos++] = channel%128;
+        m_dmxFrame[pos++] = channel & 0x7F;
         m_dmxFrame[pos++] = 0;
     }
 
@@ -155,20 +166,26 @@ void FreeDmxController::initDmxFrame()
         }
     }
 
-    QByteArray qba(m_dmxFrame,512*3);
+    /** Debug output */
+    /*
+    QByteArray qba(m_dmxFrame, FRAME_MAX_CHANNEL * FRAME_BYTES_PER_CHANNEL);
     qDebug() << "[FreeDmxController] DMX frame = " << qba.toHex();
 
-    /** Debug output */
     for (int n=0; n<=FRAME_MAX_CHANNEL * FRAME_BYTES_PER_CHANNEL / DATAGRAM_MAX_SIZE; n++) {
         PacketInfo packet = m_dmxPacketInfo[n];
         QByteArray qba2(packet.ptr, packet.size);
         qDebug() << "[FreeDmxController]" << n << qba2.toHex() << packet.size << "bytes";
         if (packet.end) break;
     }
+    */
 }
+
 
 /**
  *  updateDmxFrame - Update the main DMX frame with channel data
+ *
+ *  It is called at the rate of the QLC+ MasterTimer clock
+ *  and it should never block for more than 20ms.
  */
 void FreeDmxController::updateDmx(const QByteArray &data)
 {
@@ -181,36 +198,21 @@ void FreeDmxController::updateDmx(const QByteArray &data)
                    << chCount;
 
     /** Update all channel values in frame */
-    char *ptrDmxFrame = &m_dmxFrame[2];
+    char *ptrDmxFrame = m_dmxFrame;
     for ( int channel = 0; channel < chCount; channel++ ) {
-        *ptrDmxFrame = data.at(channel);
-        ptrDmxFrame++; ptrDmxFrame++; ptrDmxFrame++;
+        char dmxValue = data.at(channel);
+        /** First byte = C0/C2/C4/C6 + 1 if DMX value is > 127 */
+        *ptrDmxFrame &= 0xFE;
+        *ptrDmxFrame |= ( dmxValue >> 7 ) & 0x01;
+        ptrDmxFrame++;
+        /** Second byte if unchanged */
+        ptrDmxFrame++;
+        /** Third byte is the DMX value ( - 128 if > 127) */
+        *ptrDmxFrame = dmxValue & 0x7F;
+        ptrDmxFrame++;
     }
 }
 
-
-void FreeDmxController::sayHello() {
-    qDebug() << "[freeDmxController] Send E5 39 60 00 (hello) to "
-             << m_address.toString() << ":" << m_port;
-    QByteArray packet("\xE5\x39\x60\x00", 4);
-    if ( m_udpSocket->writeDatagram(packet, m_address, m_port) < 0 ) {
-        qWarning() << "[freeDmxController] sayHello() failed";
-        qWarning() << "[freeDmxController] Errno: " << m_udpSocket->error();
-        qWarning() << "[freeDmxController] Errmgs: " << m_udpSocket->errorString();
-    }
-    else m_packetSent++;
-}
-
-void FreeDmxController::sayGoodbye() {
-    qDebug() << "[freeDmxController] Send AC 00 (bye)";
-    QByteArray packet("\xAC\x00", 2);
-    if ( m_udpSocket->writeDatagram(packet, m_address, m_port) < 0 ) {
-        qWarning() << "[freeDmxController] sayGoobye() failed";
-        qWarning() << "[freeDmxController] Errno: " << m_udpSocket->error();
-        qWarning() << "[freeDmxController] Errmgs: " << m_udpSocket->errorString();
-    }
-    else m_packetSent++;
-}
 
 
 quint64 FreeDmxController::getPacketSentNumber()
@@ -269,28 +271,45 @@ void FreeDmxController::receiveDatagrams()
  */
 void FreeDmxController::sendDatagrams()
 {
-    //QMutexLocker locker(&m_dataMutex);
+    QMutexLocker locker(&m_dataMutex);
 
-    if ( m_udpSocket == NULL ) {
-        qWarning() << "[FreeDmxController] m_udpSocket == NULL";
-        return;
-    }
+    /** Return right now if UDP socket is not active */
+    if ( m_udpSocket == NULL ) return;
 
-    for ( int n = 0;
-          n <= ( FRAME_MAX_CHANNEL * FRAME_BYTES_PER_CHANNEL / DATAGRAM_MAX_SIZE );
-          n++ ) {
+    /** Transmit the DMX frame in pre-defined small packets */
+    for ( int n = 0; n <= ( FRAME_MAX_CHANNEL * FRAME_BYTES_PER_CHANNEL / DATAGRAM_MAX_SIZE ); n++ ) {
         PacketInfo packet = m_dmxPacketInfo[n];
-        qDebug() << "[FreeDmxController] Send" << packet.size << "bytes";
-        if ( m_udpSocket->writeDatagram(packet.ptr, packet.size, m_address, m_port) < 0 ) {
-            qWarning() << "[FreeDmxController::sendDatagrams] writeDatagram failed for packet " << n;
-            qWarning() << "[FreeDmxController::sendDatagrams] Errno: " << m_udpSocket->error();
-            qWarning() << "[FreeDmxController::sendDatagrams] Errmgs: " << m_udpSocket->errorString();
-        } else m_packetSent++;
+        writeDatagram((const char *)packet.ptr, (qint64)packet.size);
         if ( packet.end ) break;
     }
+
+    /** Debug output */
+    /*
+    for (int n=0; n<=FRAME_MAX_CHANNEL * FRAME_BYTES_PER_CHANNEL / DATAGRAM_MAX_SIZE; n++) {
+        PacketInfo packet = m_dmxPacketInfo[n];
+        QByteArray qba2(packet.ptr, packet.size);
+        qDebug() << "[FreeDmxController]" << n << qba2.toHex() << packet.size << "bytes";
+        if (packet.end) break;
+    }
+    */
 }
 
 void FreeDmxController::ackTimeout()
 {
     qWarning() << "[freeDmxControlled] Acknowledge timeout!";
+}
+
+
+
+
+void FreeDmxController::writeDatagram(const char* data, qint64 size) {
+
+    if ( m_udpSocket == NULL ) return;
+
+    if ( m_udpSocket->writeDatagram(data, size, m_address, m_port) < size ) {
+        qWarning() << "[freeDmxController] writeDatagram failed";
+        qWarning() << "[freeDmxController] Errno: " << m_udpSocket->error();
+        qWarning() << "[freeDmxController] Errmgs: " << m_udpSocket->errorString();
+    }
+    else m_packetSent++;
 }
